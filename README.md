@@ -29,11 +29,33 @@ Paste the primary Syncthing Device ID when prompted.
 
 For each offered folder, choose the local destination. If files already exist, choose whether to merge, replace the local folder after backing it up, or skip it.
 
-Both scripts enable the Syncthing user service so it starts automatically on future logins.
+Both scripts enable a **systemd user service**, so Syncthing starts automatically when that user logs in. A username does not need to be written into the service file because `systemctl --user` already runs the service in the current user's systemd session.
+
+## Immutable Linux
+
+The scripts automatically detect common rpm-ostree/OSTree systems such as Aurora, Fedora Silverblue/Kinoite, and similar immutable Fedora variants.
+
+You can also force immutable behavior:
+
+```bash
+./syncthing-primary-setup.sh --immutable
+./syncthing-join.sh --immutable
+```
+
+In immutable mode, the scripts recommend and use a user-local install instead of layering Syncthing into the base OS:
+
+```text
+~/.local/bin/syncthing
+~/.config/systemd/user/syncthing.service
+```
+
+This avoids changing the immutable deployment and avoids a reboot solely for Syncthing installation.
+
+The immutable installer currently supports x86_64/amd64 and arm64/aarch64 Linux systems. It expects `curl`, `tar`, and `jq` to already be available on the host.
 
 ## Notes
 
 - Syncthing syncs subfolders and files recursively.
 - The joiner can be reused on additional machines.
 - Syncthing does not require Tailscale or the same LAN. Tailscale can still be useful as an additional network path.
-- The scripts currently support apt, dnf, and pacman based systems.
+- Conventional installs currently support apt, dnf, and pacman based systems.
