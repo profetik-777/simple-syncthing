@@ -2,12 +2,126 @@
 set -euo pipefail
 
 GUI="http://127.0.0.1:8384"
+FORCE_IMMUTABLE=false
+
+if [[ "${1:-}" == "--immutable" ]]; then
+    FORCE_IMMUTABLE=true
+elif [[ -n "${1:-}" ]]; then
+    echo "Usage: $0 [--immutable]"
+    exit 1
+fi
 
 echo "======================================"
 echo " Syncthing SECONDARY / JOIN Setup"
 echo "======================================"
 
+is_immutable_system() {
+    [[ "$FORCE_IMMUTABLE" == true ]] ||
+    [[ -e /run/ostree-booted ]] ||
+    command -v rpm-ostree >/dev/null 2>&1
+}
+
+install_syncthing_user_local() {
+    echo
+    echo "Immutable Linux detected."
+    echo "Recommendation: install Syncthing in your user account"
+    echo "instead of layering it into the immutable base OS."
+    echo
+    echo "Target: $HOME/.local/bin/syncthing"
+    echo "Service: systemd user service for $(id -un)"
+    echo
+
+    for CMD in curl tar; do
+        if ! command -v "$CMD" >/dev/null 2>&1; then
+            echo "Missing required host command: $CMD"
+            echo "Install it using your immutable OS's supported host method, then rerun."
+            exit 1
+        fi
+    done
+
+    case "$(uname -m)" in
+        x86_64) ST_ARCH="amd64" ;;
+        aarch64|arm64) ST_ARCH="arm64" ;;
+        *)
+            echo "Unsupported architecture: $(uname -m)"
+            exit 1
+            ;;
+    esac
+
+    TMP_DIR=$(mktemp -d)
+    trap 'rm -rf "$TMP_DIR"' EXIT
+
+    echo "Finding latest Syncthing release..."
+    RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/syncthing/syncthing/releases/latest)
+    VERSION=$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [[ -z "$VERSION" ]]; then
+        echo "Could not determine the latest Syncthing release."
+        exit 1
+    fi
+
+    ARCHIVE="syncthing-linux-${ST_ARCH}-${VERSION}.tar.gz"
+    URL="https://github.com/syncthing/syncthing/releases/download/${VERSION}/${ARCHIVE}"
+
+    echo "Downloading Syncthing ${VERSION}..."
+    curl -fL "$URL" -o "$TMP_DIR/$ARCHIVE"
+
+    tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR"
+
+    BINARY=$(find "$TMP_DIR" -type f -name syncthing -perm -u+x | head -1)
+    if [[ -z "$BINARY" ]]; then
+        echo "Syncthing binary was not found in the downloaded archive."
+        exit 1
+    fi
+
+    mkdir -p "$HOME/.local/bin"
+    install -m 0755 "$BINARY" "$HOME/.local/bin/syncthing"
+
+    export PATH="$HOME/.local/bin:$PATH"
+
+    mkdir -p "$HOME/.config/systemd/user"
+    cat > "$HOME/.config/systemd/user/syncthing.service" <<'EOF'
+[Unit]
+Description=Syncthing - Open Source Continuous File Synchronization
+Documentation=https://docs.syncthing.net/
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/syncthing serve --no-browser --no-restart --logflags=0
+Restart=on-failure
+RestartSec=5
+SuccessExitStatus=3 4
+RestartForceExitStatus=3 4
+
+[Install]
+WantedBy=default.target
+EOF
+
+    systemctl --user daemon-reload
+
+    echo
+    echo "Syncthing installed locally for user: $(id -un)"
+    echo "No username is required in the unit because this is a systemd user service."
+}
+
 install_packages() {
+    if is_immutable_system; then
+        for CMD in jq curl; do
+            if ! command -v "$CMD" >/dev/null 2>&1; then
+                echo "Missing required host command on immutable system: $CMD"
+                echo "Install it using your OS's supported host method, then rerun."
+                exit 1
+            fi
+        done
+
+        if ! command -v syncthing >/dev/null 2>&1; then
+            install_syncthing_user_local
+        else
+            echo "Syncthing is already installed. Skipping installation."
+        fi
+        return
+    fi
+
     if command -v apt >/dev/null 2>&1; then
         sudo apt update
         sudo apt install -y syncthing jq curl
@@ -22,16 +136,24 @@ install_packages() {
     fi
 }
 
-for CMD in syncthing jq curl; do
-    if ! command -v "$CMD" >/dev/null 2>&1; then
-        echo "Required packages are missing."
-        install_packages
-        break
-    fi
-done
+if is_immutable_system; then
+    echo
+    echo "Immutable mode: ON"
+    install_packages
+else
+    for CMD in syncthing jq curl; do
+        if ! command -v "$CMD" >/dev/null 2>&1; then
+            echo "Missing dependency: $CMD"
+            install_packages
+            break
+        fi
+    done
+fi
+
+export PATH="$HOME/.local/bin:$PATH"
 
 echo
-echo "Starting Syncthing..."
+echo "Starting Syncthing for user: $(id -un)"
 systemctl --user enable --now syncthing.service
 
 echo "Waiting for Syncthing API..."
