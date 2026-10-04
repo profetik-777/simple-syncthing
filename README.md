@@ -42,16 +42,23 @@ You can also force immutable behavior:
 ./syncthing-join.sh --immutable
 ```
 
-In immutable mode, the scripts recommend and use a user-local install instead of layering Syncthing into the base OS:
+In immutable mode, if Syncthing is not already installed, the script asks how you want to install it:
 
 ```text
-~/.local/bin/syncthing
-~/.config/systemd/user/syncthing.service
+1) Direct download to ~/.local/bin
+   Recommended for immutable systems.
+
+2) Homebrew
+   Uses: brew install syncthing
 ```
 
-This avoids changing the immutable deployment and avoids a reboot solely for Syncthing installation.
+The direct option installs Syncthing into `~/.local/bin/syncthing` and creates a systemd user service at `~/.config/systemd/user/syncthing.service`.
 
-The immutable installer currently supports x86_64/amd64 and arm64/aarch64 Linux systems. It expects `curl`, `tar`, and `jq` to already be available on the host.
+The Homebrew option runs `brew install syncthing` and starts it with `brew services start syncthing`, letting Homebrew manage the service.
+
+Neither option layers Syncthing into the immutable base OS.
+
+The direct immutable installer currently supports x86_64/amd64 and arm64/aarch64 Linux systems. It expects `curl`, `tar`, and `jq` to already be available on the host. Homebrew must already be installed if you choose the Homebrew option.
 
 ## Notes
 
