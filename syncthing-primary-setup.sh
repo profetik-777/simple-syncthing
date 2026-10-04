@@ -3,6 +3,7 @@ set -euo pipefail
 
 GUI="http://127.0.0.1:8384"
 FORCE_IMMUTABLE=false
+INSTALL_METHOD=""
 
 if [[ "${1:-}" == "--immutable" ]]; then
     FORCE_IMMUTABLE=true
@@ -21,12 +22,9 @@ is_immutable_system() {
     command -v rpm-ostree >/dev/null 2>&1
 }
 
-install_syncthing_user_local() {
+install_syncthing_direct() {
     echo
-    echo "Immutable Linux detected."
-    echo "Recommendation: install Syncthing in your user account"
-    echo "instead of layering it into the immutable base OS."
-    echo
+    echo "Direct user-local installation selected."
     echo "Target: $HOME/.local/bin/syncthing"
     echo "Service: systemd user service for $(id -un)"
     echo
@@ -65,7 +63,6 @@ install_syncthing_user_local() {
 
     echo "Downloading Syncthing ${VERSION}..."
     curl -fL "$URL" -o "$TMP_DIR/$ARCHIVE"
-
     tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR"
 
     BINARY=$(find "$TMP_DIR" -type f -name syncthing -perm -u+x | head -1)
@@ -76,7 +73,6 @@ install_syncthing_user_local() {
 
     mkdir -p "$HOME/.local/bin"
     install -m 0755 "$BINARY" "$HOME/.local/bin/syncthing"
-
     export PATH="$HOME/.local/bin:$PATH"
 
     mkdir -p "$HOME/.config/systemd/user"
@@ -98,10 +94,57 @@ WantedBy=default.target
 EOF
 
     systemctl --user daemon-reload
+    INSTALL_METHOD="direct"
 
     echo
     echo "Syncthing installed locally for user: $(id -un)"
-    echo "No username is required in the unit because this is a systemd user service."
+}
+
+install_syncthing_homebrew() {
+    echo
+    echo "Homebrew installation selected."
+
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "Homebrew is not installed."
+        echo "Install Homebrew first, then rerun this script."
+        exit 1
+    fi
+
+    brew install syncthing
+    INSTALL_METHOD="homebrew"
+
+    echo
+    echo "Syncthing installed with Homebrew."
+}
+
+choose_immutable_install_method() {
+    echo
+    echo "Immutable Linux detected."
+    echo
+    echo "How would you like to install Syncthing?"
+    echo
+    echo "  1) Direct download to ~/.local/bin"
+    echo "     Recommended for immutable systems."
+    echo
+    echo "  2) Homebrew"
+    echo "     Uses: brew install syncthing"
+    echo
+
+    read -r -p "Choice [1]: " INSTALL_CHOICE
+    INSTALL_CHOICE="${INSTALL_CHOICE:-1}"
+
+    case "$INSTALL_CHOICE" in
+        1)
+            install_syncthing_direct
+            ;;
+        2)
+            install_syncthing_homebrew
+            ;;
+        *)
+            echo "Invalid choice."
+            exit 1
+            ;;
+    esac
 }
 
 install_packages() {
@@ -115,9 +158,14 @@ install_packages() {
         done
 
         if ! command -v syncthing >/dev/null 2>&1; then
-            install_syncthing_user_local
+            choose_immutable_install_method
         else
             echo "Syncthing is already installed. Skipping installation."
+            if command -v brew >/dev/null 2>&1 && brew list --versions syncthing >/dev/null 2>&1; then
+                INSTALL_METHOD="homebrew"
+            else
+                INSTALL_METHOD="existing"
+            fi
         fi
         return
     fi
@@ -154,7 +202,12 @@ export PATH="$HOME/.local/bin:$PATH"
 
 echo
 echo "Starting Syncthing for user: $(id -un)"
-systemctl --user enable --now syncthing.service
+
+if [[ "$INSTALL_METHOD" == "homebrew" ]]; then
+    brew services start syncthing
+else
+    systemctl --user enable --now syncthing.service
+fi
 
 echo "Waiting for Syncthing API..."
 until curl -sf "$GUI/rest/noauth/health" >/dev/null 2>&1; do
