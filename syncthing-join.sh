@@ -147,6 +147,79 @@ choose_immutable_install_method() {
     esac
 }
 
+detect_existing_syncthing() {
+    if command -v syncthing >/dev/null 2>&1; then
+        SYNCTHING_BIN=$(command -v syncthing)
+        echo
+        echo "Existing Syncthing installation detected:"
+        echo "  $SYNCTHING_BIN"
+        echo
+        echo "Skipping Syncthing installation and continuing with configuration."
+
+        if command -v brew >/dev/null 2>&1 && brew list --versions syncthing >/dev/null 2>&1; then
+            INSTALL_METHOD="homebrew"
+        else
+            INSTALL_METHOD="existing"
+        fi
+
+        return 0
+    fi
+
+    return 1
+}
+
+ensure_syncthing_running() {
+    echo
+    echo "Checking whether Syncthing is already running..."
+
+    if curl -sf "$GUI/rest/noauth/health" >/dev/null 2>&1; then
+        echo "Syncthing is already running. Using the existing instance."
+        return
+    fi
+
+    echo "Syncthing is installed but not currently responding on $GUI."
+
+    if [[ "$INSTALL_METHOD" == "homebrew" ]]; then
+        echo "Starting the existing Homebrew Syncthing service..."
+        brew services start syncthing
+    elif systemctl --user cat syncthing.service >/dev/null 2>&1; then
+        echo "Starting the existing systemd user service..."
+        systemctl --user enable --now syncthing.service
+    else
+        SYNCTHING_BIN=$(command -v syncthing)
+
+        echo "No Syncthing user service was found."
+        echo "Creating a systemd user service for:"
+        echo "  $SYNCTHING_BIN"
+
+        mkdir -p "$HOME/.config/systemd/user"
+        cat > "$HOME/.config/systemd/user/syncthing.service" <<EOF
+[Unit]
+Description=Syncthing - Open Source Continuous File Synchronization
+Documentation=https://docs.syncthing.net/
+After=network.target
+
+[Service]
+ExecStart=$SYNCTHING_BIN serve --no-browser --no-restart --logflags=0
+Restart=on-failure
+RestartSec=5
+SuccessExitStatus=3 4
+RestartForceExitStatus=3 4
+
+[Install]
+WantedBy=default.target
+EOF
+
+        systemctl --user daemon-reload
+        systemctl --user enable --now syncthing.service
+    fi
+
+    echo "Waiting for Syncthing API..."
+    until curl -sf "$GUI/rest/noauth/health" >/dev/null 2>&1; do
+        sleep 2
+    done
+}
+
 install_packages() {
     if is_immutable_system; then
         for CMD in jq curl; do
@@ -184,35 +257,29 @@ install_packages() {
     fi
 }
 
-if is_immutable_system; then
+if detect_existing_syncthing; then
+    :
+elif is_immutable_system; then
     echo
     echo "Immutable mode: ON"
     install_packages
 else
-    for CMD in syncthing jq curl; do
+    for CMD in jq curl; do
         if ! command -v "$CMD" >/dev/null 2>&1; then
             echo "Missing dependency: $CMD"
             install_packages
             break
         fi
     done
+
+    if ! command -v syncthing >/dev/null 2>&1; then
+        install_packages
+    fi
 fi
 
 export PATH="$HOME/.local/bin:$PATH"
 
-echo
-echo "Starting Syncthing for user: $(id -un)"
-
-if [[ "$INSTALL_METHOD" == "homebrew" ]]; then
-    brew services start syncthing
-else
-    systemctl --user enable --now syncthing.service
-fi
-
-echo "Waiting for Syncthing API..."
-until curl -sf "$GUI/rest/noauth/health" >/dev/null 2>&1; do
-    sleep 2
-done
+ensure_syncthing_running
 
 CONFIG="$HOME/.local/state/syncthing/config.xml"
 [[ -f "$CONFIG" ]] || CONFIG="$HOME/.config/syncthing/config.xml"
