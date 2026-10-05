@@ -68,3 +68,10 @@ The direct immutable installer currently supports x86_64/amd64 and arm64/aarch64
 - The joiner can be reused on additional machines.
 - Syncthing does not require Tailscale or the same LAN. Tailscale can still be useful as an additional network path.
 - Conventional installs currently support apt, dnf, and pacman based systems.
+
+
+## Existing installations and config detection
+
+When Syncthing is already installed and running, the scripts now use `syncthing --paths` to find the configuration file for that installation before reading the REST API key. They validate the `/rest/system/status` response before passing it to `jq`.
+
+If the running Syncthing instance and the detected config do not match, the script stops and prints the selected config path, Syncthing's reported paths, and the raw API response instead of failing with an opaque `jq: parse error`.
