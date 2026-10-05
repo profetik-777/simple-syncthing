@@ -281,26 +281,76 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ensure_syncthing_running
 
-CONFIG="$HOME/.local/state/syncthing/config.xml"
-[[ -f "$CONFIG" ]] || CONFIG="$HOME/.config/syncthing/config.xml"
+find_syncthing_config() {
+    local detected=""
 
-if [[ ! -f "$CONFIG" ]]; then
-    echo "Could not locate Syncthing config.xml."
+    if command -v syncthing >/dev/null 2>&1; then
+        detected=$(syncthing --paths 2>/dev/null | awk -F': ' '/^Configuration file:/ {print $2; exit}')
+    fi
+
+    if [[ -n "$detected" && -f "$detected" ]]; then
+        printf '%s\n' "$detected"
+        return 0
+    fi
+
+    if [[ -f "$HOME/.local/state/syncthing/config.xml" ]]; then
+        printf '%s\n' "$HOME/.local/state/syncthing/config.xml"
+        return 0
+    fi
+
+    if [[ -f "$HOME/.config/syncthing/config.xml" ]]; then
+        printf '%s\n' "$HOME/.config/syncthing/config.xml"
+        return 0
+    fi
+
+    return 1
+}
+
+CONFIG=$(find_syncthing_config || true)
+
+if [[ -z "$CONFIG" || ! -f "$CONFIG" ]]; then
+    echo
+    echo "Could not locate the Syncthing config used by this installation."
+    echo "Try running:"
+    echo "  syncthing --paths"
     exit 1
 fi
+
+echo
+echo "Using Syncthing config:"
+echo "  $CONFIG"
 
 API_KEY=$(sed -n 's:.*<apikey>\(.*\)</apikey>.*:\1:p' "$CONFIG" | head -1)
 
 if [[ -z "$API_KEY" ]]; then
-    echo "Could not determine Syncthing API key."
+    echo "Could not determine Syncthing API key from:"
+    echo "  $CONFIG"
     exit 1
 fi
 
 api() {
-    curl -sf -H "X-API-Key: $API_KEY" "$@"
+    curl -sS -H "X-API-Key: $API_KEY" "$@"
 }
 
-LOCAL_ID=$(api "$GUI/rest/system/status" | jq -r '.myID')
+STATUS_RESPONSE=$(api "$GUI/rest/system/status" || true)
+
+if ! jq -e . >/dev/null 2>&1 <<< "$STATUS_RESPONSE"; then
+    echo
+    echo "Syncthing is running, but the API response was not valid JSON."
+    echo "This usually means the script found the wrong config/API key."
+    echo
+    echo "Config selected:"
+    echo "  $CONFIG"
+    echo
+    echo "Syncthing says its paths are:"
+    syncthing --paths 2>/dev/null || true
+    echo
+    echo "API response:"
+    printf '%s\n' "$STATUS_RESPONSE"
+    exit 1
+fi
+
+LOCAL_ID=$(jq -r '.myID' <<< "$STATUS_RESPONSE")
 
 echo
 echo "This device:"
