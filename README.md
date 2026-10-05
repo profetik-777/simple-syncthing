@@ -42,6 +42,8 @@ You can also force immutable behavior:
 ./syncthing-join.sh --immutable
 ```
 
+If Syncthing is already installed, either script detects the existing binary first, skips installation, and continues directly into service/API checks and Syncthing configuration. If an existing Syncthing instance is already running on port 8384, the script reuses it instead of launching a second instance.
+
 In immutable mode, if Syncthing is not already installed, the script asks how you want to install it:
 
 ```text
