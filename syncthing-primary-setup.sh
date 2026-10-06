@@ -1297,6 +1297,85 @@ echo "All selected folders are configured."
 
 
 # ============================================================
+# FINAL STATUS
+# ============================================================
+
+autostart_status() {
+    if [[ "$INSTALL_METHOD" == "homebrew" ]]; then
+        local state
+
+        state=$(
+            brew services list 2>/dev/null |
+            awk '$1 == "syncthing" { print $2; exit }' ||
+            true
+        )
+
+        if [[ "$state" == "started" ]]; then
+            printf '%s\n' "Enabled (Homebrew service)"
+        else
+            printf '%s\n' "Not enabled (Syncthing is running manually)"
+        fi
+
+        return
+    fi
+
+    if systemctl --user is-enabled --quiet syncthing.service 2>/dev/null; then
+        printf '%s\n' "Enabled (systemd user service)"
+    else
+        printf '%s\n' "Not enabled"
+    fi
+}
+
+print_primary_status() {
+    local folder_count
+    local connected_count
+    local running_status
+    local startup_status
+
+    folder_count=$(
+        api "/rest/config/folders" 2>/dev/null |
+        jq -r 'length' 2>/dev/null ||
+        printf '%s\n' "unknown"
+    )
+
+    connected_count=$(
+        api "/rest/system/connections" 2>/dev/null |
+        jq -r '[.connections[]? | select(.connected == true)] | length' 2>/dev/null ||
+        printf '%s\n' "unknown"
+    )
+
+    if api_health; then
+        running_status="Running"
+    else
+        running_status="Not responding"
+    fi
+
+    startup_status=$(autostart_status)
+
+    echo
+    echo "======================================"
+    echo " PRIMARY SETUP STATUS"
+    echo "======================================"
+    echo
+    echo "Syncthing:         $running_status"
+    echo "Autostart:         $startup_status"
+    echo "Folders:           $folder_count"
+    echo "Connected devices: $connected_count"
+    echo
+    echo "Primary Device ID:"
+    echo "$DEVICE_ID"
+
+    if [[ "$startup_status" == "Not enabled (Syncthing is running manually)" ]]; then
+        echo
+        echo "Note: Homebrew autostart is not enabled."
+        echo "Do not start a second Syncthing instance while this one is running."
+        echo "When the manual instance is stopped, you can enable autostart with:"
+        echo
+        echo "  brew services start syncthing"
+    fi
+}
+
+# ============================================================
 # WAIT FOR SECONDARY
 # ============================================================
 
@@ -1454,11 +1533,12 @@ while true; do
 
         echo
         echo "Secondary connected successfully."
+
+        print_primary_status
+
         echo
-
-
         read -r -p \
-            "Wait for another secondary device? [y/N]: " \
+            "Set up another secondary device? [y/N]: " \
             more
 
 
@@ -1473,6 +1553,12 @@ while true; do
 done
 
 
+print_primary_status
+
+echo
+echo "======================================"
+echo " PRIMARY SETUP COMPLETE"
+echo "======================================"
 echo
 echo "Syncthing primary setup finished."
 echo "Startup configuration is complete."
