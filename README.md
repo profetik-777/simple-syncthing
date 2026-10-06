@@ -1,6 +1,14 @@
 # Simple Syncthing
 
-Two terminal-first helper scripts for setting up Syncthing across Linux machines.
+Simple Syncthing started because I liked Syncthing itself, but I did not particularly enjoy setting it up through the web UI. I wanted a simpler, terminal-first experience: a lightweight TUI-style installer that could walk me through choosing folders, pairing devices, and getting Syncthing running automatically without spending much time in the browser.
+
+The project provides two terminal-first helper scripts for setting up Syncthing across Linux machines.
+
+> **AI disclosure and disclaimer**
+>
+> This project was created with substantial help from AI, including code generation, review, debugging, and iteration. The scripts have been tested in the environments they were developed for, but they may still contain bugs, make incorrect assumptions about your system, or behave differently across Linux distributions and Syncthing versions.
+>
+> Review the scripts before running them, especially on systems containing important or irreplaceable data. Use this project at your own risk. Keep backups of anything you cannot afford to lose.
 
 ## Files
 
@@ -68,7 +76,6 @@ The direct immutable installer currently supports x86_64/amd64 and arm64/aarch64
 - The joiner can be reused on additional machines.
 - Syncthing does not require Tailscale or the same LAN. Tailscale can still be useful as an additional network path.
 - Conventional installs currently support apt, dnf, and pacman based systems.
-
 
 ## Existing installations and config detection
 
